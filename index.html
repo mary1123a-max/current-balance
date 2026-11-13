@@ -278,7 +278,7 @@ function freshState() {
   const random = $('#chkRandWind') ? $('#chkRandWind').checked : true;
   return {
     theta: 0, omega: 0, noise: 0,
-    winding: random ? (Math.random() < 0.5 ? 1 : -1) : -1,
+    winding: random ? (Math.random() < 0.5 ? 1 : -1) : 1,
     uStar, nutU: u0,
     zcm: -GEO.nutM * (GEO.nutZ0 - GEO.nutTravel * uStar) / GEO.beamM,
     lambda: GEO.lambda * (1 + gauss() * 0.01),
@@ -368,7 +368,8 @@ function torques(th) {
   const tStruct = -GEO.beamM * G * (S.zcm * c + GEO.beamH * s);
   const tNut = -GEO.nutM * G * (nutZ() * c);
   let tW = 0; for (const p of S.pieces) if (p.loc === 'beam') tW += -(p.mass / 1000) * G * (p.z * c - 0.0012 * s);
-  const tMag = S.winding * kTheta(th) * S.Ib * S.Is;
+  // 物理計算在自己的右手座標系（x 橫向、y 鉛直、z 軸向）中進行；轉到場景座標（P 在前方 +z、軸向 +x）是一個鏡射，所以要加負號
+  const tMag = -S.winding * kTheta(th) * S.Ib * S.Is;
   return { tStruct, tNut, tW, tMag, sum: tStruct + tNut + tW + tMag };
 }
 function stepBeam(dt) {
@@ -777,6 +778,7 @@ function updateVectors(tq) {
   if (!on) return;
   const Feq = tq.tMag / GEO.D, len = clamp(Math.abs(Feq) * 4000, 0.6, 9);
   arrows.F.setDirection(new THREE.Vector3(0, Math.sign(Feq) || 1, 0)); arrows.F.setLength(len, 0.7, 0.45);
+  arrows.F.position.set(10, Feq < 0 ? -0.12 : 0.15, 0); // 向下時從板子底面畫起，才不會被板子擋住
   arrows.Fl.position.set(10.8, Math.sign(Feq) * (len * 0.6), 0);
   const bs = Math.sign(S.winding * S.Is), bon = Math.abs(S.Is) > 0.02;
   arrows.B.forEach(a => { a.visible = bon; a.setDirection(new THREE.Vector3(bs || 1, 0, 0)); a.setLength(clamp(Math.abs(S.Is) * 2.4, 1, 10), 0.7, 0.45); a.position.x = PIV.x + 2 + (bs < 0 ? 15 : 3); });
@@ -832,7 +834,7 @@ function stepCompass(dt) {
   const target = Math.atan2(-bz, bx), c = S.compass;
   let d = target - c.psi; d = Math.atan2(Math.sin(d), Math.cos(d));
   const stiff = 30 + 50 * Math.min(1, mag / 3e-4);
-  const n = 4, h = dt / n; for (let i = 0; i < n; i++) { c.w += (stiff * Math.sin(d) - 4.5 * c.w) * h; c.psi += c.w * h; d = Math.atan2(Math.sin(target - c.psi), Math.cos(target - c.psi)); }
+  const n = 4, h = dt / n; for (let i = 0; i < n; i++) { c.w += (stiff * Math.sin(d) - 7 * c.w) * h; c.psi += c.w * h; d = Math.atan2(Math.sin(target - c.psi), Math.cos(target - c.psi)); }
   needleG.rotation.y = c.psi; S.compass.Bmag = mag;
 }
 function moveCompass(e) {
@@ -1062,7 +1064,7 @@ function drawTop() {
     if (Math.abs(S.Ib) > 0.02) { const s = Math.sign(S.Ib);
       const seg = [[tx(0.02), ty(0.015), tx(0.06), ty(0.015)], [tx(0.1), ty(0.008), tx(0.1), ty(-0.008)], [tx(0.06), ty(-0.015), tx(0.02), ty(-0.015)]];
       seg.forEach(([a, b, c, d]) => s > 0 ? arrow(a, b, c, d, '#e11d48') : arrow(c, d, a, b, '#e11d48')); x.fillStyle = '#e11d48'; x.font = 'bold 14px serif'; x.fillText('I₁', tx(0.035), ty(0.015) - 8); }
-    const tm = S.winding * kTheta(S.theta) * S.Ib * S.Is;
+    const tm = -S.winding * kTheta(S.theta) * S.Ib * S.Is;
     if (Math.abs(tm) > 1e-8) { const cx = tx(0.1) - 26, cy = ty(0.0); x.strokeStyle = '#16a34a'; x.lineWidth = 2; x.beginPath(); x.arc(cx, cy, 9, 0, 7); x.stroke();
       x.fillStyle = '#16a34a'; if (tm > 0) { x.beginPath(); x.arc(cx, cy, 2.5, 0, 7); x.fill(); } else { x.beginPath(); x.moveTo(cx - 6, cy - 6); x.lineTo(cx + 6, cy + 6); x.moveTo(cx + 6, cy - 6); x.lineTo(cx - 6, cy + 6); x.stroke(); }
       x.font = '12px "Noto Sans TC",sans-serif'; x.fillText(tm > 0 ? 'F 向上' : 'F 向下', cx - 18, cy + 24); }
@@ -1292,7 +1294,7 @@ function buildTeacher() {
 function demoSetup() {
   for (const L of ['A', 'B']) S.sup[L].on = false;
   S.wires = []; S.nutU = S.uStar; S.theta = 0; S.omega = 0;
-  const solRedFromPlus = S.winding < 0; // 使磁力矩為負（外端上揚）
+  const solRedFromPlus = S.winding > 0; // 使磁力矩為負（外端上揚）
   addWire('A+', 'P'); addWire('A-', 'Pp');
   if (solRedFromPlus) { addWire('B+', 'S1'); addWire('B-', 'S2'); } else { addWire('B+', 'S2'); addWire('B-', 'S1'); }
   Object.assign(S.sup.A, { vC: 0.1, vF: 0, iC: 0, iF: 0 }); Object.assign(S.sup.B, { vC: 0.45, vF: 0, iC: 0, iF: 0 });
